@@ -19,28 +19,26 @@ export function VerificationQrScanner({ onScan, isProcessing = false }: Verifica
   const [error, setError] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<string>("upload")
   const [cameraActive, setCameraActive] = useState(false)
+  const [debugMessage, setDebugMessage] = useState<string>("")
+  const [showDebugCanvas, setShowDebugCanvas] = useState(false)
 
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const debugCanvasRef = useRef<HTMLCanvasElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const animationFrameRef = useRef<number | null>(null)
+  const scanningActiveRef = useRef(false)
 
   // Initialize canvas for QR scanning
   useEffect(() => {
-    if (typeof window !== "undefined" && !canvasRef.current) {
+    // Create canvas elements if they don't exist
+    if (!canvasRef.current) {
       canvasRef.current = document.createElement("canvas")
+      console.log("Hidden canvas created for QR scanning")
     }
 
-    return () => {
-      // Clean up
-      stopCamera()
-      canvasRef.current = null
-    }
-  }, [])
-
-  // Clean up camera when component unmounts
-  useEffect(() => {
+    // Clean up on unmount
     return () => {
       stopCamera()
     }
@@ -53,11 +51,12 @@ export function VerificationQrScanner({ onScan, isProcessing = false }: Verifica
     } else if ((activeTab !== "camera" || isProcessing) && cameraActive) {
       stopCamera()
     }
-  }, [activeTab, isProcessing, cameraActive])
+  }, [activeTab, isProcessing])
 
   const startCamera = async () => {
     try {
       setError(null)
+      setDebugMessage("Initializing camera...")
 
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
         throw new Error("Camera access is not supported in your browser")
@@ -66,28 +65,62 @@ export function VerificationQrScanner({ onScan, isProcessing = false }: Verifica
       // Stop any existing stream first
       stopCamera()
 
+      console.log("Requesting camera access...")
+
+      // Use basic constraints for better compatibility
       const constraints = {
         video: {
-          facingMode: "environment", // Use the back camera on mobile devices
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
+          facingMode: "environment", // Use back camera on mobile
+          width: { ideal: 640 },
+          height: { ideal: 480 },
         },
       }
 
-      console.log("Requesting camera access...")
       const stream = await navigator.mediaDevices.getUserMedia(constraints)
       streamRef.current = stream
+      console.log("Camera access granted:", stream.getVideoTracks()[0].label)
 
       if (videoRef.current) {
+        // Set up video element
         videoRef.current.srcObject = stream
+        videoRef.current.setAttribute("playsinline", "true") // Important for iOS
+        videoRef.current.muted = true
+
+        // Wait for video to be ready
         videoRef.current.onloadedmetadata = () => {
           if (videoRef.current) {
             videoRef.current
               .play()
               .then(() => {
-                console.log("Camera started successfully")
+                console.log(
+                  "Camera started successfully, video dimensions:",
+                  videoRef.current?.videoWidth,
+                  "x",
+                  videoRef.current?.videoHeight,
+                )
                 setCameraActive(true)
-                scanQrCodeFromCamera()
+                setDebugMessage("Camera active, preparing to scan...")
+
+                // Initialize canvas with video dimensions
+                if (canvasRef.current && videoRef.current) {
+                  canvasRef.current.width = videoRef.current.videoWidth
+                  canvasRef.current.height = videoRef.current.videoHeight
+                  console.log(
+                    `Canvas initialized with dimensions: ${canvasRef.current.width}x${canvasRef.current.height}`,
+                  )
+                }
+
+                if (debugCanvasRef.current && videoRef.current) {
+                  debugCanvasRef.current.width = videoRef.current.videoWidth
+                  debugCanvasRef.current.height = videoRef.current.videoHeight
+                }
+
+                // Start scanning after a short delay to ensure everything is ready
+                setTimeout(() => {
+                  scanningActiveRef.current = true
+                  setDebugMessage("Scanning for QR codes...")
+                  startQrScanning()
+                }, 1000)
               })
               .catch((err) => {
                 console.error("Error playing video:", err)
@@ -106,6 +139,7 @@ export function VerificationQrScanner({ onScan, isProcessing = false }: Verifica
 
   const stopCamera = () => {
     console.log("Stopping camera...")
+    scanningActiveRef.current = false
 
     // Stop the animation frame
     if (animationFrameRef.current) {
@@ -117,7 +151,7 @@ export function VerificationQrScanner({ onScan, isProcessing = false }: Verifica
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((track) => {
         track.stop()
-        console.log("Camera track stopped")
+        console.log("Camera track stopped:", track.label)
       })
       streamRef.current = null
     }
@@ -129,45 +163,95 @@ export function VerificationQrScanner({ onScan, isProcessing = false }: Verifica
     }
 
     setCameraActive(false)
+    setDebugMessage("")
   }
 
-  const scanQrCodeFromCamera = () => {
-    if (!videoRef.current || !canvasRef.current || !cameraActive) {
+  const startQrScanning = () => {
+    if (!scanningActiveRef.current) {
+      console.log("Scanning not active, aborting scan loop")
+      return
+    }
+
+    scanQrCodeFrame()
+  }
+
+  const scanQrCodeFrame = () => {
+    if (!scanningActiveRef.current) {
+      console.log("Scanning stopped")
+      return
+    }
+
+    if (!videoRef.current || !canvasRef.current) {
+      console.log("Video or canvas not available, retrying...")
+      animationFrameRef.current = requestAnimationFrame(scanQrCodeFrame)
       return
     }
 
     const video = videoRef.current
     const canvas = canvasRef.current
-    const ctx = canvas.getContext("2d")
 
-    if (!ctx || video.videoWidth === 0 || video.videoHeight === 0) {
-      // Video not ready yet, try again in the next frame
-      animationFrameRef.current = requestAnimationFrame(scanQrCodeFromCamera)
+    // Check if video is playing and has dimensions
+    if (video.paused || video.videoWidth === 0 || video.videoHeight === 0) {
+      console.log("Video not ready yet, retrying...")
+      animationFrameRef.current = requestAnimationFrame(scanQrCodeFrame)
       return
     }
 
-    // Set canvas dimensions to match video
-    canvas.width = video.videoWidth
-    canvas.height = video.videoHeight
-
-    // Draw current video frame to canvas
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
-
-    // Get image data from canvas
     try {
+      // Make sure canvas dimensions match video
+      if (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight) {
+        canvas.width = video.videoWidth
+        canvas.height = video.videoHeight
+        console.log(`Updated canvas dimensions: ${canvas.width}x${canvas.height}`)
+      }
+
+      const ctx = canvas.getContext("2d", { willReadFrequently: true })
+      if (!ctx) {
+        console.error("Could not get canvas context")
+        animationFrameRef.current = requestAnimationFrame(scanQrCodeFrame)
+        return
+      }
+
+      // Draw current video frame to canvas
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+
+      // Draw to debug canvas if enabled
+      if (showDebugCanvas && debugCanvasRef.current) {
+        const debugCtx = debugCanvasRef.current.getContext("2d")
+        if (debugCtx) {
+          debugCtx.drawImage(video, 0, 0, debugCanvasRef.current.width, debugCanvasRef.current.height)
+
+          // Add a scanning overlay
+          debugCtx.strokeStyle = "rgba(0, 255, 0, 0.5)"
+          debugCtx.lineWidth = 2
+          const centerX = debugCanvasRef.current.width / 2
+          const centerY = debugCanvasRef.current.height / 2
+          const size = Math.min(debugCanvasRef.current.width, debugCanvasRef.current.height) * 0.7
+
+          debugCtx.strokeRect(centerX - size / 2, centerY - size / 2, size, size)
+        }
+      }
+
+      // Get image data from canvas
       const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
 
       // Try to find QR code
       const code = jsQR(imageData.data, imageData.width, imageData.height, {
-        inversionAttempts: "dontInvert",
+        inversionAttempts: "attemptBoth", // Try both inverted and non-inverted
       })
 
       if (code) {
         console.log("QR code found in camera feed:", code.data)
+        setDebugMessage("QR code detected! Processing...")
 
-        // Stop camera and process the QR code
-        stopCamera()
+        // Stop scanning
+        scanningActiveRef.current = false
+        if (animationFrameRef.current) {
+          cancelAnimationFrame(animationFrameRef.current)
+          animationFrameRef.current = null
+        }
 
+        // Process the QR code
         try {
           // Validate QR data
           let qrData
@@ -176,7 +260,6 @@ export function VerificationQrScanner({ onScan, isProcessing = false }: Verifica
             console.log("Camera scan - parsed QR data:", qrData)
 
             // Basic validation - check for required fields
-            // Note: We're checking for addressHash instead of address
             if (!qrData.proofId || !qrData.addressHash || !qrData.type) {
               console.error("Missing required fields in camera QR data:", qrData)
               throw new Error("Invalid QR code format. Missing required fields.")
@@ -187,25 +270,35 @@ export function VerificationQrScanner({ onScan, isProcessing = false }: Verifica
           }
 
           // If validation passes, send the data
+          stopCamera()
           onScan(code.data)
           return
         } catch (error: any) {
           setError(error.message)
-          // Restart camera after error
+          setDebugMessage("Error: " + error.message)
+
+          // Restart scanning after error
           setTimeout(() => {
-            if (activeTab === "camera") {
-              startCamera()
+            if (activeTab === "camera" && cameraActive) {
+              scanningActiveRef.current = true
+              startQrScanning()
             }
           }, 2000)
         }
+      } else {
+        // Update debug message occasionally (not every frame to avoid performance issues)
+        if (Math.random() < 0.05) {
+          // Update roughly every 20 frames
+          setDebugMessage("Scanning for QR code... Position code in view")
+        }
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error processing camera frame:", error)
-      // Continue scanning despite error
+      setDebugMessage("Error: " + error.message)
     }
 
-    // Continue scanning if no QR code was found
-    animationFrameRef.current = requestAnimationFrame(scanQrCodeFromCamera)
+    // Continue scanning
+    animationFrameRef.current = requestAnimationFrame(scanQrCodeFrame)
   }
 
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -214,6 +307,7 @@ export function VerificationQrScanner({ onScan, isProcessing = false }: Verifica
 
     setError(null)
     setIsScanning(true)
+    setDebugMessage("Processing uploaded image...")
 
     try {
       console.log("Processing verification QR code from file:", file.name, file.type, file.size)
@@ -225,6 +319,7 @@ export function VerificationQrScanner({ onScan, isProcessing = false }: Verifica
 
           if (qrData) {
             console.log("Verification QR code scanned successfully:", qrData)
+            setDebugMessage("QR code detected in image!")
 
             try {
               // Validate QR data
@@ -234,7 +329,6 @@ export function VerificationQrScanner({ onScan, isProcessing = false }: Verifica
                 console.log("Parsed QR data:", parsedData)
 
                 // Basic validation - check for required fields
-                // Note: We're checking for addressHash instead of address
                 if (!parsedData.proofId || !parsedData.addressHash || !parsedData.type) {
                   console.error("Missing required fields in QR data:", parsedData)
                   throw new Error("Invalid QR code format. Missing required fields.")
@@ -248,6 +342,7 @@ export function VerificationQrScanner({ onScan, isProcessing = false }: Verifica
               onScan(qrData)
             } catch (error: any) {
               setError(error.message)
+              setDebugMessage("Error: " + error.message)
             }
           } else {
             throw new Error("No QR code found in the image")
@@ -255,6 +350,7 @@ export function VerificationQrScanner({ onScan, isProcessing = false }: Verifica
         } catch (error: any) {
           console.error("Error scanning verification QR code:", error)
           setError(error.message || "Failed to scan QR code. Please try again with a clearer image.")
+          setDebugMessage("Error: " + error.message)
         } finally {
           setIsScanning(false)
           // Reset the file input
@@ -266,6 +362,7 @@ export function VerificationQrScanner({ onScan, isProcessing = false }: Verifica
     } catch (error: any) {
       console.error("Error preparing file scan:", error)
       setError(error.message || "Failed to process the image file.")
+      setDebugMessage("Error: " + error.message)
       setIsScanning(false)
       if (fileInputRef.current) {
         fileInputRef.current.value = ""
@@ -318,7 +415,7 @@ export function VerificationQrScanner({ onScan, isProcessing = false }: Verifica
     })
   }
 
-  // Add this new function to try multiple processing methods
+  // Try multiple processing methods to improve QR detection
   const tryMultipleProcessingMethods = (img: HTMLImageElement): string | null => {
     // Try different sizes to handle various image resolutions
     const sizes = [
@@ -413,11 +510,16 @@ export function VerificationQrScanner({ onScan, isProcessing = false }: Verifica
   const handleTabChange = (value: string) => {
     setActiveTab(value)
     setError(null)
+    setDebugMessage("")
 
     // Stop camera if switching away from camera tab
     if (value !== "camera" && cameraActive) {
       stopCamera()
     }
+  }
+
+  const toggleDebugCanvas = () => {
+    setShowDebugCanvas(!showDebugCanvas)
   }
 
   return (
@@ -459,45 +561,76 @@ export function VerificationQrScanner({ onScan, isProcessing = false }: Verifica
 
         <TabsContent value="camera" className="mt-4">
           <Card className="flex items-center justify-center h-64 bg-muted/50 relative overflow-hidden">
-            {cameraActive ? (
-              <video
-                ref={videoRef}
-                className="absolute inset-0 w-full h-full object-cover"
-                playsInline
-                muted
-                autoPlay
-              />
-            ) : (
-              <div className="text-center p-4">
-                <Camera className="mx-auto h-8 w-8 text-muted-foreground mb-2" />
+            {/* Video element for camera feed */}
+            <video
+              ref={videoRef}
+              className="absolute inset-0 w-full h-full object-cover z-10"
+              playsInline
+              muted
+              autoPlay
+            />
+
+            {/* Debug canvas overlay */}
+            {showDebugCanvas && (
+              <canvas ref={debugCanvasRef} className="absolute inset-0 w-full h-full object-cover z-20" />
+            )}
+
+            {/* Status message overlay */}
+            {debugMessage && (
+              <div className="absolute bottom-2 left-2 right-2 bg-black/50 text-white text-xs p-1 z-30 rounded text-center">
+                {debugMessage}
+              </div>
+            )}
+
+            {/* Loading overlay */}
+            {!cameraActive && (
+              <div className="absolute inset-0 flex flex-col items-center justify-center bg-background/80 z-40">
+                <Camera className="h-8 w-8 text-muted-foreground mb-2" />
                 <p className="text-sm text-muted-foreground">Camera will activate to scan QR codes</p>
               </div>
             )}
 
+            {/* Processing overlay */}
             {isProcessing && (
-              <div className="absolute inset-0 flex items-center justify-center bg-background/80 z-10">
+              <div className="absolute inset-0 flex items-center justify-center bg-background/80 z-50">
                 <Loader2 className="h-8 w-8 animate-spin text-primary" />
               </div>
             )}
 
+            {/* Close button */}
             {cameraActive && (
               <Button
                 variant="outline"
                 size="icon"
-                className="absolute top-2 right-2 z-10 bg-background/50 hover:bg-background/80"
+                className="absolute top-2 right-2 z-50 bg-background/50 hover:bg-background/80"
                 onClick={stopCamera}
               >
                 <X className="h-4 w-4" />
               </Button>
             )}
+
+            {/* Scanning guide overlay */}
+            {cameraActive && (
+              <div className="absolute inset-0 flex items-center justify-center z-30 pointer-events-none">
+                <div className="w-3/4 h-3/4 border-2 border-green-500 rounded-lg opacity-50"></div>
+              </div>
+            )}
           </Card>
 
-          {!cameraActive && !isProcessing && (
-            <Button onClick={startCamera} className="w-full mt-2" disabled={isProcessing}>
-              <Camera className="mr-2 h-4 w-4" />
-              Start Camera
-            </Button>
-          )}
+          <div className="flex justify-between mt-2">
+            {!cameraActive && !isProcessing && (
+              <Button onClick={startCamera} className="flex-1" disabled={isProcessing}>
+                <Camera className="mr-2 h-4 w-4" />
+                Start Camera
+              </Button>
+            )}
+
+            {cameraActive && (
+              <Button variant="outline" size="sm" onClick={toggleDebugCanvas} className="ml-auto">
+                {showDebugCanvas ? "Hide Debug" : "Show Debug"}
+              </Button>
+            )}
+          </div>
         </TabsContent>
       </Tabs>
 
