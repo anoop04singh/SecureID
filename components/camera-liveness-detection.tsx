@@ -38,7 +38,7 @@ export function CameraLivenessDetection({ onComplete, isProcessing = false }: Ca
         setDetectionError(null)
 
         // Import face-api.js
-        const faceapi = await import("face-api.js")
+        const faceapi = await import("@vladmandic/face-api")
 
         // Define models URL - using jsdelivr CDN for reliability
         const modelsUrl = "https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model"
