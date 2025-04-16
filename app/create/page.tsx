@@ -8,11 +8,11 @@ import { Label } from "@/components/ui/label"
 import { useToast } from "@/components/ui/use-toast"
 import { useWallet } from "@/hooks/use-wallet"
 import { QrScanner } from "@/components/qr-scanner"
-import { NoCameraVerification } from "@/components/no-camera-verification"
 import { generateZkProof } from "@/lib/zk-proofs"
 import { storeIdentityProof, isDocumentUsed } from "@/lib/contract-interactions"
 import { Loader2, AlertCircle } from "lucide-react"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { SmartLivenessVerification } from "@/components/smart-liveness-verification"
 
 export default function CreateIdentity() {
   const { toast } = useToast()
@@ -38,7 +38,7 @@ export default function CreateIdentity() {
       setStep(2)
       toast({
         title: "ID Card Processed Successfully",
-        description: "Please enter the last four digits of your ID to continue.",
+        description: "Please enter the first four digits of your ID to continue.",
       })
     } catch (error: any) {
       console.error("Error processing QR code:", error)
@@ -114,15 +114,17 @@ export default function CreateIdentity() {
         title: "Liveness Check Passed",
         description: "Your identity has been verified successfully.",
       })
+      // Move to the next step only if verification was successful
+      setStep(3)
     } else {
-      // Allow proceeding even if liveness check is skipped
+      // Don't proceed if liveness check fails
       toast({
-        title: "Liveness Check Skipped",
-        description: "You can still proceed, but your identity will have a lower trust score.",
+        title: "Liveness Check Failed",
+        description: "Liveness verification is required to create your identity. Please try again.",
+        variant: "destructive",
       })
+      // Stay on the current step
     }
-    // Move to the next step
-    setStep(3)
   }
 
   const generateProof = async () => {
@@ -263,13 +265,13 @@ export default function CreateIdentity() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="last-four">Enter the last four digits of your ID</Label>
+                <Label htmlFor="last-four">Enter the first four digits of your ID</Label>
                 <Input
                   id="last-four"
                   value={lastFourDigits}
                   onChange={(e) => setLastFourDigits(e.target.value)}
                   maxLength={4}
-                  placeholder="Last 4 digits"
+                  placeholder="First 4 digits"
                 />
                 <p className="text-xs text-muted-foreground">
                   This helps verify that you are the owner of this ID card.
@@ -299,7 +301,7 @@ export default function CreateIdentity() {
                 <p className="text-sm text-muted-foreground">Step 3: Liveness Detection</p>
               </div>
 
-              <NoCameraVerification onComplete={handleLivenessComplete} isProcessing={isProcessing} />
+              <SmartLivenessVerification onComplete={handleLivenessComplete} isProcessing={isProcessing} />
             </div>
           )}
 
