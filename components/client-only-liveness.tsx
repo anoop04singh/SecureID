@@ -4,8 +4,8 @@ import { useState, useEffect } from "react"
 import { Loader2 } from "lucide-react"
 import dynamic from "next/dynamic"
 
-// Update the import to use NoCameraVerification directly
-const NoCameraVerification = dynamic(() => import("./no-camera-verification"), {
+// Update the import to use SmartLivenessVerification instead of NoCameraVerification
+const SmartLivenessVerification = dynamic(() => import("./smart-liveness-verification"), {
   ssr: false,
   loading: () => (
     <div className="flex flex-col items-center justify-center p-8 space-y-4">
@@ -20,7 +20,7 @@ interface ClientOnlyLivenessProps {
   isProcessing?: boolean
 }
 
-// Update the component to use NoCameraVerification directly
+// Update the component to use SmartLivenessVerification directly
 export function ClientOnlyLiveness({ onComplete, isProcessing = false }: ClientOnlyLivenessProps) {
   const [isMounted, setIsMounted] = useState(false)
 
@@ -37,5 +37,5 @@ export function ClientOnlyLiveness({ onComplete, isProcessing = false }: ClientO
     )
   }
 
-  return <NoCameraVerification onComplete={onComplete} isProcessing={isProcessing} />
+  return <SmartLivenessVerification onComplete={onComplete} isProcessing={isProcessing} />
 }
