@@ -265,13 +265,13 @@ export default function CreateIdentity() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="last-four">Enter the first four digits of your ID</Label>
+                <Label htmlFor="last-four">Enter the last four digits of your ID</Label>
                 <Input
                   id="last-four"
                   value={lastFourDigits}
                   onChange={(e) => setLastFourDigits(e.target.value)}
                   maxLength={4}
-                  placeholder="First 4 digits"
+                  placeholder="last 4 digits"
                 />
                 <p className="text-xs text-muted-foreground">
                   This helps verify that you are the owner of this ID card.
