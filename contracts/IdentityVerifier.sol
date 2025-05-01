@@ -9,6 +9,7 @@ contract IdentityVerifier {
        bool livenessVerified;
        uint256 timestamp;
        bool isDeleted;
+       bytes32 documentHash; // Added to track the document hash used for this identity
    }
    
    // Mapping from user address to their identity
@@ -27,6 +28,7 @@ contract IdentityVerifier {
    event ProofStored(string proofId, address indexed user, bool isAdult, bool livenessVerified, uint256 timestamp);
    event ProofVerified(string proofId, address indexed verifier, address indexed user, uint256 timestamp);
    event IdentityDeleted(address indexed user, uint256 timestamp);
+   event DocumentReleased(bytes32 indexed documentHash, address indexed user, uint256 timestamp);
    
    /**
     * @dev Store a new identity proof
@@ -63,7 +65,8 @@ contract IdentityVerifier {
            isAdult: isAdult,
            livenessVerified: livenessVerified,
            timestamp: block.timestamp,
-           isDeleted: false
+           isDeleted: false,
+           documentHash: documentHash // Store the document hash with the identity
        });
        
        // Store the proof data
@@ -223,7 +226,8 @@ contract IdentityVerifier {
        bool isAdult,
        bool livenessVerified,
        uint256 timestamp,
-       bool isDeleted
+       bool isDeleted,
+       bytes32 documentHash
    ) {
        Identity memory identity = userIdentities[user];
        return (
@@ -232,7 +236,8 @@ contract IdentityVerifier {
            identity.isAdult,
            identity.livenessVerified,
            identity.timestamp,
-           identity.isDeleted
+           identity.isDeleted,
+           identity.documentHash
        );
    }
    
@@ -246,21 +251,29 @@ contract IdentityVerifier {
    }
    
    /**
-    * @dev Delete a user's identity
+    * @dev Delete a user's identity and release the document for reuse
+    * @param documentId The document ID to release for reuse
     */
-   function deleteIdentity() external {
+   function deleteIdentity(string calldata documentId) external {
        // Ensure the user has an identity
        require(bytes(userIdentities[msg.sender].proofId).length > 0, "No identity found for this user");
        require(!userIdentities[msg.sender].isDeleted, "Identity already deleted");
        
+       // Hash the document ID to get the document hash
+       bytes32 documentHash = keccak256(abi.encodePacked(documentId));
+       
+       // Verify that this document hash matches the one used for this identity
+       require(userIdentities[msg.sender].documentHash == documentHash, "Document ID does not match this identity");
+       
        // Mark the identity as deleted
        userIdentities[msg.sender].isDeleted = true;
        
-       // Note: We don't remove the document hash from documentHashes
-       // This ensures the document can't be reused even after deletion
+       // Release the document hash so it can be reused
+       documentHashes[documentHash] = false;
        
-       // Emit event
+       // Emit events
        emit IdentityDeleted(msg.sender, block.timestamp);
+       emit DocumentReleased(documentHash, msg.sender, block.timestamp);
    }
    
    /**

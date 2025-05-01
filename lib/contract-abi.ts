@@ -4,6 +4,7 @@ export const IdentityVerifierABI = [
   "event ProofStored(string proofId, address indexed user, bool isAdult, bool livenessVerified, uint256 timestamp)",
   "event ProofVerified(string proofId, address indexed verifier, address indexed user, uint256 timestamp)",
   "event IdentityDeleted(address indexed user, uint256 timestamp)",
+  "event DocumentReleased(bytes32 indexed documentHash, address indexed user, uint256 timestamp)",
 
   // Functions
   "function storeProof(string calldata proofId, string calldata commitment, bool isAdult, bool livenessVerified, string calldata proofData, bytes32 documentHash) external",
@@ -12,8 +13,8 @@ export const IdentityVerifierABI = [
   "function verifyProofWithCodeHash(string calldata proofId, bytes32 addressHash, string calldata verificationCode, bytes32 codeHash) external view returns (bool)",
   "function verifyCodeHash(string calldata verificationCode, bytes32 codeHash, address userAddress) public pure returns (bool)",
   "function logVerification(string calldata proofId, bytes32 addressHash) external",
-  "function getUserIdentity(address user) external view returns (string memory proofId, string memory commitment, bool isAdult, bool livenessVerified, uint256 timestamp, bool isDeleted)",
+  "function getUserIdentity(address user) external view returns (string memory proofId, string memory commitment, bool isAdult, bool livenessVerified, uint256 timestamp, bool isDeleted, bytes32 documentHash)",
   "function getProofData(string calldata proofId) external view returns (string memory)",
-  "function deleteIdentity() external",
+  "function deleteIdentity(string calldata documentId) external",
   "function isDocumentUsed(bytes32 documentHash) external view returns (bool)",
 ]

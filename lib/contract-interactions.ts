@@ -2,7 +2,7 @@ import { ethers } from "ethers"
 import { IdentityVerifierABI } from "./contract-abi"
 
 // Contract address on Sepolia testnet
-const CONTRACT_ADDRESS = "0x067423983d7dEC5d7e618dDC9299C21F4199CdE9" // Replace with actual contract address
+const CONTRACT_ADDRESS = "0x6A0A9e73808E293De3c6125D883e61fdF96BDa19" // Replace with actual contract address
 
 // Function to hash a document reference ID to prevent reuse
 export function hashDocumentId(referenceId: string): string {
@@ -118,6 +118,7 @@ export async function getUserIdentity(signer: ethers.JsonRpcSigner): Promise<any
       livenessVerified: livenessVerified,
       timestamp: new Date(Number(identity.timestamp) * 1000),
       isDeleted: identity.isDeleted,
+      documentHash: identity.documentHash, // Include document hash in the returned data
     }
   } catch (error) {
     console.error("Error getting user identity:", error)
@@ -201,17 +202,24 @@ export async function verifyIdentityProofWithCodeHash(
   }
 }
 
-// Function to delete user identity
-export async function deleteIdentity(signer: ethers.JsonRpcSigner): Promise<ethers.TransactionResponse> {
+// Updated function to delete user identity with document reference ID
+export async function deleteIdentity(
+  signer: ethers.JsonRpcSigner,
+  documentReferenceId: string,
+): Promise<ethers.TransactionResponse> {
   try {
     const contract = new ethers.Contract(CONTRACT_ADDRESS, IdentityVerifierABI, signer)
 
-    // Delete identity on-chain
-    const tx = await contract.deleteIdentity()
+    // Hash the document reference ID
+    const documentHash = hashDocumentId(documentReferenceId)
+    console.log("Deleting identity with document hash:", documentHash)
+
+    // Delete identity on-chain and release document
+    const tx = await contract.deleteIdentity(documentReferenceId)
 
     return tx
   } catch (error) {
     console.error("Error deleting identity:", error)
-    throw new Error("Failed to delete identity from blockchain")
+    throw new Error(`Failed to delete identity from blockchain: ${error.message || "Unknown error"}`)
   }
 }

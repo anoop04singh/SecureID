@@ -17,7 +17,6 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -38,6 +37,17 @@ const NoCameraVerification = dynamic(() => import("@/components/no-camera-verifi
   ),
 })
 
+// Dynamically import the QrScanner component
+const QrScanner = dynamic(() => import("@/components/qr-scanner").then((mod) => mod.QrScanner), {
+  ssr: false,
+  loading: () => (
+    <div className="flex flex-col items-center justify-center p-8 space-y-4">
+      <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      <p className="text-sm text-center">Loading QR scanner...</p>
+    </div>
+  ),
+})
+
 export default function Dashboard() {
   const { toast } = useToast()
   const { isConnected, connect, address, signer } = useWallet()
@@ -50,11 +60,15 @@ export default function Dashboard() {
   const [codeHash, setCodeHash] = useState<string | null>(null)
   const [codeExpiry, setCodeExpiry] = useState<Date | null>(null)
   const [deleteConfirmation, setDeleteConfirmation] = useState<string>("")
+  const [documentReferenceId, setDocumentReferenceId] = useState<string>("")
+  const [showQrScanner, setShowQrScanner] = useState<boolean>(false)
   const [showLivenessVerification, setShowLivenessVerification] = useState<boolean>(false)
   const [isProcessingLiveness, setIsProcessingLiveness] = useState<boolean>(false)
   const [isGeneratingCode, setIsGeneratingCode] = useState<boolean>(false)
   const [isDeleting, setIsDeleting] = useState<boolean>(false)
   const [showQrCodes, setShowQrCodes] = useState<boolean>(false)
+  const [isProcessingQr, setIsProcessingQr] = useState<boolean>(false)
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState<boolean>(false)
 
   useEffect(() => {
     if (isConnected && signer) {
@@ -197,6 +211,40 @@ export default function Dashboard() {
     }
   }
 
+  // Handle QR code scan result
+  const handleQrScan = (data: any) => {
+    try {
+      console.log("QR scan result:", data)
+      setIsProcessingQr(true)
+
+      // Extract the reference ID from the QR data
+      if (data && data.referenceId) {
+        setDocumentReferenceId(data.referenceId)
+        setShowQrScanner(false)
+
+        toast({
+          title: "Document Scanned Successfully",
+          description: `Reference ID extracted: ${data.referenceId}`,
+        })
+      } else {
+        toast({
+          title: "Invalid QR Code",
+          description: "Could not extract reference ID from the QR code. Please try again.",
+          variant: "destructive",
+        })
+      }
+    } catch (error) {
+      console.error("Error processing QR scan:", error)
+      toast({
+        title: "Error Processing QR Code",
+        description: "Failed to process the QR code data. Please try again.",
+        variant: "destructive",
+      })
+    } finally {
+      setIsProcessingQr(false)
+    }
+  }
+
   const handleDeleteIdentity = async () => {
     if (!signer) return
 
@@ -209,14 +257,23 @@ export default function Dashboard() {
       return
     }
 
+    if (!documentReferenceId) {
+      toast({
+        title: "Document Reference ID Required",
+        description: "Please scan your ID document to extract the reference ID.",
+        variant: "destructive",
+      })
+      return
+    }
+
     setIsDeleting(true)
     try {
-      const tx = await deleteIdentity(signer)
+      const tx = await deleteIdentity(signer, documentReferenceId)
       await tx.wait()
 
       toast({
         title: "Identity Deleted",
-        description: "Your identity has been permanently deleted from the blockchain.",
+        description: "Your identity has been permanently deleted and the document is now available for reuse.",
       })
 
       // Reset state
@@ -228,17 +285,26 @@ export default function Dashboard() {
       setCodeHash(null)
       setCodeExpiry(null)
       setDeleteConfirmation("")
+      setDocumentReferenceId("")
       setShowQrCodes(false)
+      setDeleteDialogOpen(false)
     } catch (error) {
       console.error("Error deleting identity:", error)
       toast({
         title: "Error Deleting Identity",
-        description: "There was an error deleting your identity. Please try again.",
+        description: `Failed to delete identity: ${error.message || "Unknown error"}`,
         variant: "destructive",
       })
     } finally {
       setIsDeleting(false)
     }
+  }
+
+  const openDeleteDialog = () => {
+    setDeleteDialogOpen(true)
+    setDeleteConfirmation("")
+    setDocumentReferenceId("")
+    setShowQrScanner(false)
   }
 
   if (!isConnected) {
@@ -526,14 +592,15 @@ export default function Dashboard() {
             Copy Wallet Address
           </Button>
 
-          <Dialog>
-            <DialogTrigger asChild>
-              <Button variant="destructive" className="w-full">
-                <Trash2 className="mr-2 h-4 w-4" />
-                Delete Identity
-              </Button>
-            </DialogTrigger>
-            <DialogContent>
+          {/* Simple button to open the dialog */}
+          <Button variant="destructive" className="w-full" onClick={openDeleteDialog}>
+            <Trash2 className="mr-2 h-4 w-4" />
+            Delete Identity
+          </Button>
+
+          {/* Controlled dialog */}
+          <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+            <DialogContent className="sm:max-w-md">
               <DialogHeader>
                 <DialogTitle>Delete Identity</DialogTitle>
                 <DialogDescription>
@@ -558,15 +625,63 @@ export default function Dashboard() {
                     placeholder={address || ""}
                   />
                 </div>
+                <div className="space-y-2">
+                  <Label>Scan your ID document to release it for reuse</Label>
+                  {documentReferenceId ? (
+                    <div className="p-3 bg-muted rounded-md">
+                      <p className="text-sm font-medium">Document Reference ID:</p>
+                      <p className="text-xs font-mono break-all">{documentReferenceId}</p>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="mt-2"
+                        onClick={() => {
+                          setDocumentReferenceId("")
+                          setShowQrScanner(true)
+                        }}
+                      >
+                        Scan Again
+                      </Button>
+                    </div>
+                  ) : (
+                    <Button variant="secondary" className="w-full" onClick={() => setShowQrScanner(true)}>
+                      <QrCode className="mr-2 h-4 w-4" />
+                      Scan ID Document
+                    </Button>
+                  )}
+                  <p className="text-xs text-muted-foreground">
+                    This will allow the document to be reused for creating a new identity.
+                  </p>
+                </div>
+
+                {/* QR Scanner */}
+                {showQrScanner && (
+                  <div className="mt-4">
+                    <div className="bg-muted p-4 rounded-lg">
+                      <QrScanner onScan={handleQrScan} isProcessing={isProcessingQr} />
+                    </div>
+                    <Button variant="outline" className="w-full mt-2" onClick={() => setShowQrScanner(false)}>
+                      Cancel Scanning
+                    </Button>
+                  </div>
+                )}
               </div>
-              <DialogFooter>
-                <Button variant="outline" onClick={() => setDeleteConfirmation("")}>
+              <DialogFooter className="sm:justify-end">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setDeleteConfirmation("")
+                    setDocumentReferenceId("")
+                    setShowQrScanner(false)
+                    setDeleteDialogOpen(false)
+                  }}
+                >
                   Cancel
                 </Button>
                 <Button
                   variant="destructive"
                   onClick={handleDeleteIdentity}
-                  disabled={deleteConfirmation !== address || isDeleting}
+                  disabled={deleteConfirmation !== address || !documentReferenceId || isDeleting}
                 >
                   {isDeleting ? (
                     <>
